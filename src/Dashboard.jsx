@@ -4,16 +4,21 @@ import { useNavigate } from "react-router-dom";
 const statusColor = {
   "en-route": "bg-green-500 text-white",
   "rerouted": "bg-yellow-400 text-gray-900",
-  "delivered": "bg-gray-400 text-white"
+  "delivered": "bg-gray-400 text-white",
+  "disrupted": "bg-red-500 text-white"
 };
 const statusLabel = {
   "en-route": "En Route",
   "rerouted": "Rerouted",
-  "delivered": "Delivered"
+  "delivered": "Delivered",
+  "disrupted": "Disrupted"
 };
 
 export default function Dashboard() {
   const [shipments, setShipments] = useState([]);
+  const [rerouteId, setRerouteId] = useState(null);
+  const [newOrigin, setNewOrigin] = useState("");
+  const [rerouteLoading, setRerouteLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -31,7 +36,54 @@ export default function Dashboard() {
     return () => window.removeEventListener("storage", loadShipments);
   }, []);
 
-  const activeShipments = shipments.filter(s => ["en-route", "rerouted"].includes(s.status));
+  const handleReroute = async (shipment) => {
+    if (!newOrigin || rerouteLoading) return;
+    setRerouteLoading(true);
+    try {
+      const payload = {
+        start: newOrigin,
+        end: shipment.destination,
+        modes: ["road", "rail", "air"],
+        optimizations: [shipment.priority]
+      };
+      const res = await fetch("http://localhost:8000/get_route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error("Failed to reroute");
+      const data = await res.json();
+      let updated = shipments.map((s) => {
+        if (s.id === shipment.id) {
+          return {
+            ...s,
+            status: "rerouted",
+            reroute: {
+              from: newOrigin,
+              selectedRoute: {
+                mode: data.mode,
+                estimatedTime: data.estimatedTime,
+                cost: data.cost,
+                emissions: data.emissions,
+                geojson: data.geojson || null
+              }
+            }
+          };
+        }
+        return s;
+      });
+      localStorage.setItem("shipments", JSON.stringify(updated));
+      setShipments(updated);
+      setRerouteId(null);
+      setNewOrigin("");
+    } catch (e) {
+      alert("Failed to reroute: " + e.message);
+    } finally {
+      setRerouteLoading(false);
+    }
+  };
+
+  const activeShipments = shipments.filter(s => ["en-route", "rerouted", "disrupted"].includes(s.status));
   const completedShipments = shipments.filter(s => ["delivered"].includes(s.status));
 
   return (
@@ -99,24 +151,59 @@ export default function Dashboard() {
                     <div className="grid grid-cols-3 gap-2 text-sm mt-2">
                       <div className="bg-gray-100 rounded p-2 flex flex-col items-center">
                         <span className="font-semibold text-gray-700">ETA</span>
-                        <span className="text-gray-600">{shipment.eta || '--'}</span>
+                        <span className="text-gray-600">{shipment.selectedRoute?.estimatedTime || shipment.eta || '--'}</span>
                       </div>
                       <div className="bg-gray-100 rounded p-2 flex flex-col items-center">
                         <span className="font-semibold text-gray-700">Cost</span>
-                        <span className="text-gray-600">{shipment.cost || '--'}</span>
+                        <span className="text-gray-600">{shipment.selectedRoute?.cost || shipment.cost || '--'}</span>
                       </div>
                       <div className="bg-gray-100 rounded p-2 flex flex-col items-center">
                         <span className="font-semibold text-gray-700">Emissions</span>
-                        <span className="text-gray-600">{shipment.emissions || '--'}</span>
+                        <span className="text-gray-600">{shipment.selectedRoute?.emissions || shipment.emissions || '--'}</span>
                       </div>
                     </div>
                     {/* Reroute Section */}
+                    {shipment.status === "disrupted" && rerouteId !== shipment.id && (
+                      <button
+                        className="mt-3 bg-yellow-400 text-gray-900 px-4 py-2 rounded font-semibold hover:bg-yellow-300 transition"
+                        onClick={() => {
+                          setRerouteId(shipment.id);
+                          setNewOrigin("");
+                        }}
+                      >
+                        Reroute
+                      </button>
+                    )}
+                    {shipment.status === "disrupted" && rerouteId === shipment.id && (
+                      <div className="mt-3 flex flex-col items-start space-y-2">
+                        <input
+                          type="text"
+                          className="border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="Enter new origin city"
+                          value={newOrigin}
+                          onChange={e => setNewOrigin(e.target.value)}
+                        />
+                        <button
+                          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition font-semibold"
+                          onClick={() => handleReroute(shipment)}
+                          disabled={rerouteLoading || !newOrigin}
+                        >
+                          {rerouteLoading ? "Rerouting..." : "Confirm Reroute"}
+                        </button>
+                        <button
+                          className="ml-2 text-gray-500 hover:text-gray-700 text-xs underline"
+                          onClick={() => setRerouteId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                     {shipment.reroute && (
                       <div className="mt-3 p-3 rounded-xl bg-yellow-50 border border-yellow-200">
                         <div className="font-semibold text-yellow-700 mb-1">Rerouted</div>
                         <div className="text-xs text-gray-700">Old: {shipment.route?.mode || 'N/A'}</div>
                         <div className="text-xs text-gray-700">New: {shipment.reroute.selectedRoute?.mode || 'N/A'}</div>
-                        <div className="text-xs text-gray-700">Rerouted from: {shipment.reroute.fromCity || shipment.origin}</div>
+                        <div className="text-xs text-gray-700">Rerouted from: {shipment.reroute.from || shipment.origin}</div>
                       </div>
                     )}
                   </div>
@@ -154,15 +241,15 @@ export default function Dashboard() {
                     <div className="grid grid-cols-3 gap-2 text-sm mt-2">
                       <div className="bg-gray-100 rounded p-2 flex flex-col items-center">
                         <span className="font-semibold text-gray-700">ETA</span>
-                        <span className="text-gray-600">{shipment.eta || '--'}</span>
+                        <span className="text-gray-600">{shipment.selectedRoute?.estimatedTime || shipment.eta || '--'}</span>
                       </div>
                       <div className="bg-gray-100 rounded p-2 flex flex-col items-center">
                         <span className="font-semibold text-gray-700">Cost</span>
-                        <span className="text-gray-600">{shipment.cost || '--'}</span>
+                        <span className="text-gray-600">{shipment.selectedRoute?.cost || shipment.cost || '--'}</span>
                       </div>
                       <div className="bg-gray-100 rounded p-2 flex flex-col items-center">
                         <span className="font-semibold text-gray-700">Emissions</span>
-                        <span className="text-gray-600">{shipment.emissions || '--'}</span>
+                        <span className="text-gray-600">{shipment.selectedRoute?.emissions || shipment.emissions || '--'}</span>
                       </div>
                     </div>
                   </div>
