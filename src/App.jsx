@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import CreateShipmentForm from "./CreateShipmentForm";
 import Dashboard from "./Dashboard";
 import Login from "./Login";
+import GeoMap from "./GeoMap";
 import './App.css';
 
 function RequireAuth({ children }) {
@@ -40,6 +41,12 @@ function App() {
             <div className="min-h-screen bg-gray-100 flex items-center justify-center">
               <CreateShipmentForm />
             </div>
+          </RequireAuth>
+        } />
+        {/* GeoMap route for testing pure Leaflet */}
+        <Route path="/geomap" element={
+          <RequireAuth>
+            <GeoMap />
           </RequireAuth>
         } />
         {/* Redirect all other routes to /dashboard if logged in, else /login */}

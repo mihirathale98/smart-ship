@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { getRecommendedRoutes } from "./api/getRecommendedRoutes";
 
@@ -67,6 +67,35 @@ const productOptions = [
   "Other",
 ];
 
+const TEST_GEOJSON = {
+  type: "FeatureCollection",
+  features: [
+    {
+      type: "Feature",
+      properties: {
+        description:
+          "Optimized route from Boston to Chicago avoiding tolls and prioritizing scenic views."
+      },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [-71.0589, 42.3601], // Boston, MA
+          [-72.6131, 42.2928],
+          [-73.6016, 42.2655],
+          [-74.1585, 42.3871],
+          [-75.9296, 42.5822],
+          [-77.2624, 42.6436],
+          [-78.5640, 42.7325],
+          [-80.3377, 42.6758],
+          [-81.5294, 41.5558],
+          [-82.0577, 41.5131],
+          [-87.6298, 41.8781] // Chicago, IL
+        ]
+      }
+    }
+  ]
+};
+
 export default function CreateShipmentForm() {
   // Form state
   const [origin, setOrigin] = useState("");
@@ -87,6 +116,33 @@ export default function CreateShipmentForm() {
   const destinationRef = useRef();
 
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Only add if not already present
+    let shipments = JSON.parse(localStorage.getItem("shipments")) || [];
+    const exists = shipments.some(
+      (s) => s.productName === "Test GeoJSON Route" && s.origin === "Boston" && s.destination === "Chicago"
+    );
+    if (!exists) {
+      shipments.push({
+        id: Date.now(),
+        origin: "Boston",
+        destination: "Chicago",
+        productName: "Test GeoJSON Route",
+        shipmentDate: "2025-05-02",
+        priority: "fastest-delivery",
+        status: "en-route",
+        selectedRoute: {
+          mode: "Custom",
+          estimatedTime: 3,
+          cost: 1500,
+          emissions: 400,
+          geojson: TEST_GEOJSON
+        }
+      });
+      localStorage.setItem("shipments", JSON.stringify(shipments));
+    }
+  }, []);
 
   // Autocomplete handlers
   const handleOriginChange = (e) => {
@@ -150,6 +206,13 @@ export default function CreateShipmentForm() {
       shipmentDate,
       priority,
       route: { ...route },
+      selectedRoute: {
+        mode: route.mode,
+        estimatedTime: route.estimatedTime,
+        cost: route.estimatedCost,
+        emissions: route.estimatedEmissions,
+        geojson: route.geojson || null
+      },
       status: "en-route",
     };
     // Save to localStorage (append, don't overwrite)
